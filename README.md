@@ -2,6 +2,13 @@
 
 A Montgomery curve defined over the prime field `p = 2^336 - 17`.
 
+| Parameter | Value |
+|---|---|
+| Field size | 336-bit |
+| Byte representation | 42 bytes |
+| Security level | ~168-bit |
+| Cofactor | 4 (target) |
+
 ---
 
 ## Prime Field Selection — `p = 2^336 - 17`
@@ -32,56 +39,55 @@ for k in range(256, 449):
 Run this script in [SageMath](https://www.sagemath.org/) to independently reproduce and verify the prime selection. The output at `k = 336` confirms `c = 17` as the smallest valid reduction constant at this field size.
 
 ---
- 
+
 ## FPOW — Fixed-Point One-Way Wrap
- 
-FPOW is an additional hardness layer applied on top of the elliptic curve scalar multiplication. It is designed to protect the private scalar `k_raw` against a quantum adversary who has successfully solved the ECDLP — for example via Shor's algorithm.
- 
+
+FPOW is an additional hardness layer on top of scalar multiplication, designed to protect `k_raw` even if an adversary solves the ECDLP — for example via Shor's algorithm.
+
 ### Core Construction
- 
+
 ```
-secret    = SHA-512(k_raw)                      — internal, never exposed
-k_wrapped = k_raw + H(secret ‖ k_raw) mod n    — transformed scalar
-PublicKey = k_wrapped × G                       — only this leaves the function
+secret    = SHA-512(k_raw)                    — internal, never exposed
+k_wrapped = k_raw + H(secret ‖ k_raw) mod n  — transformed scalar
+PublicKey = k_wrapped × G                     — only this leaves the function
 ```
- 
-where `H` is a double SHA-512 construction binding `secret` and `k_raw` through two independent hash paths.
- 
+
+`H` is a double SHA-512 construction binding `secret` and `k_raw` through two independent hash paths. The entire operation is atomic — no intermediate value is ever exposed.
+
 ### The Fixed-Point Equation
- 
-An attacker who recovers `k_wrapped` from the public key via ECDLP must still solve:
- 
+
+An attacker who recovers `k_wrapped` via ECDLP must still solve:
+
 ```
 k_raw = k_wrapped − H(SHA-512(k_raw) ‖ k_raw) mod n
 ```
- 
-This is a fixed-point equation with circular dependency — `k_raw` appears on both sides, and `secret` is derived from `k_raw` itself. No algebraic shortcut is known. Classical brute force requires `2^336` operations; Grover acceleration reduces this to `2^168`, which remains infeasible at the ~168-bit security level of Curve33617.
- 
-### Properties Verified via SageMath
- 
-| Property | Result |
-|---|---|
-| `PublicKey(FPOW) ≠ PublicKey(naive)` | ✅ genuine transformation |
-| Non-polynomial | ✅ Lagrange interpolation fails |
-| Circular dependency | ✅ no algebraic recovery path |
-| Statistical uniformity | ✅ max deviation < 0.15 across 2000 samples |
-| Differential randomness | ✅ 9/9 unique outputs, 0 collisions |
-| Avalanche effect | ✅ delta +1 in `k_raw` → totally different output |
- 
+
+`k_raw` appears on both sides. `secret` is derived from `k_raw` itself — creating a circular dependency with no known algebraic shortcut.
+
+### Attack Resistance — Verified via SageMath
+
+| Attack | Method | Result |
+|---|---|---|
+| Fixed-point iteration | `x = k_wrapped − H(SHA-512(x) ‖ x)` × 200 | failed — no convergence |
+| Meet-in-the-middle | 100k left vs 100k right table, find collision | failed — no collision found |
+| Related-key delta | 10 adjacent `k_raw`, search for pattern in output | failed — no pattern detected |
+| Linearity test | `wrap(a) + wrap(b) ≡ wrap(a+b)?` × 20 | failed — 0/20 linear hits |
+| Known-plaintext correlation | 10 trials × 2000 samples, search for bias | failed — noise only, no genuine correlation |
+
 Full verification: `dev/unit/fpow_curve33617.sage`
- 
+
 ### Security Model
- 
+
 ```
 Classical adversary:
-  PublicKey → k_wrapped   requires solving ECDLP      (~2^168)
-  k_wrapped → k_raw       requires solving fixed-point (~2^336)
- 
+  PublicKey → k_wrapped   requires solving ECDLP        (~2^168)
+  k_wrapped → k_raw       requires solving fixed-point  (~2^336)
+
 Quantum adversary (Shor):
-  PublicKey → k_wrapped   ✅ recovered
-  k_wrapped → k_raw       ❌ circular, Grover: ~2^168 — still infeasible
+  PublicKey → k_wrapped   recovered
+  k_wrapped → k_raw       circular, Grover: ~2^168 — still infeasible
 ```
- 
-FPOW does not claim to be a post-quantum primitive. It is an additional hardness layer — an attacker must break both ECDLP and the SHA-512 fixed-point inversion to recover `k_raw`. These are independent problems with no known combined shortcut.
- 
-> **Note:** FPOW is a novel construction not found in surveyed literature at time of writing. It is presented as a research contribution to Curve33617 pending formal peer review.
+
+FPOW does not claim to be a post-quantum primitive. It is an additional hardness layer — an attacker must break both ECDLP and the SHA-512 fixed-point inversion independently. No known combined shortcut exists.
+
+> **Note:** FPOW is a novel construction not found in surveyed literature at time of writing. Presented as a research contribution pending formal peer review.
