@@ -40,6 +40,61 @@ Run this script in [SageMath](https://www.sagemath.org/) to independently reprod
 
 ---
 
+## Field Structure Analysis
+
+The following properties of `p = 2^336 - 17` were verified empirically via SageMath. All measurements reflect the intrinsic structure of the prime field, independent of curve parameters.
+
+### Structural Properties
+
+| Property | Value | Note |
+|---|---|---|
+| Bit size | 336 bits | exact, no padding |
+| Byte size | 42 bytes | 336 / 8 = 42, perfectly divisible |
+| Hex representation | `0xffff...ffffffef` | fully packed |
+| Bit utilization | 100.0% | every bit of 42 bytes is used |
+| Hamming weight | 335 / 336 bits | 99.70% ones |
+| Zero bit count | 1 bit | only one zero bit in entire representation |
+| Max consecutive ones | 331 bits | longest unbroken run of 1s |
+| Distance from 2^336 | c = 17 | 5-bit constant |
+| p mod 4 | 3 | enables fast square root via a^((p+1)/4) |
+
+### Reduction Efficiency
+
+The pseudo-Mersenne form `p = 2^336 - 17` enables highly efficient modular reduction. For any value `x`, reduction is computed as:
+
+```
+x mod p ≈ x_low + 17 * x_high
+```
+
+where `x_high = x >> 336`. Since `17 = (1 << 4) + 1`, the constant multiplication requires only a single shift and a single addition — no full multiplication needed:
+
+```
+17 * x_high = (x_high << 4) + x_high
+```
+
+This is a strictly cheaper operation than most pseudo-Mersenne primes of comparable size, and contributes directly to the efficiency of field arithmetic in the Montgomery ladder.
+
+### Square Root
+
+Because `p ≡ 3 (mod 4)`, square roots over `GF(p)` are computed via the closed-form expression:
+
+```
+sqrt(a) = a^((p+1)/4) mod p
+```
+
+This avoids the general Tonelli-Shanks algorithm entirely, which is critical for efficient y-coordinate recovery and point decompression in the Twisted Edwards equivalent.
+
+### Limb Decomposition
+
+| Word size | Limbs required | Fill |
+|---|---|---|
+| 32-bit | 11 limbs (352 bits) | 336 / 352 = 95.45% |
+| 64-bit | 6 limbs (384 bits) | 336 / 384 = 87.50% |
+
+At 64-bit, six limbs are required with the top limb partially filled. This is a predictable and consistent layout, straightforward to implement in any multi-precision arithmetic library.
+
+---
+
 ## FPOW — Fixed-Point One-Way Wrap
 
 FPOW is an additional hardness layer on top of scalar multiplication, designed to protect `k_raw` even if an adversary solves the ECDLP — for example via Shor's algorithm.
@@ -48,7 +103,7 @@ FPOW is an additional hardness layer on top of scalar multiplication, designed t
 
 ```
 secret    = SHA-512(k_raw)                    — internal, never exposed
-k_wrapped = k_raw + H(secret ‖ k_raw) mod n  — transformed scalar
+k_wrapped = k_raw + H(secret ‖ k_raw) mod n   — transformed scalar
 PublicKey = k_wrapped × G                     — only this leaves the function
 ```
 
